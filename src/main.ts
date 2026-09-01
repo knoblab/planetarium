@@ -3,7 +3,7 @@ import { getSunTimes, calcSunCoords } from './astronomy/sun';
 import { getMoonAge, getMoonPath, calcMoonCoords } from './astronomy/moon';
 import { getSeoulSiderealTime, getStarRotation } from './astronomy/sidereal';
 import { calcSkyColors, calcTwilight } from './astronomy/sky';
-import { setupInfoPanel, formatDateToYYYYMMDD } from './ui/info';
+import { setupInfoPanel, formatDateToYYYYMMDD, formatMinutes } from './ui/info';
 import { setupUIControls, type UIControlsState } from './ui/controls';
 import { setupSatelliteLoops } from './satellites/satellite';
 import { initAudio, initVisualizer, startVisualizer, setVisualizerColor, setVisualizerPerfMode } from './audio/visualizer';
@@ -209,7 +209,7 @@ const { getSimDate, adjustSpeed } = setupUIControls(
 );
 
 // 정보 패널 초기화
-const { toggleInfo } = setupInfoPanel(infoPanelEl, infoRiseEl, infoSetEl, infoDateEl);
+const { toggleInfo } = setupInfoPanel(infoPanelEl, infoRiseEl, infoSetEl, infoDateEl, datePickerEl);
 clockContainer.onclick = () => toggleInfo();
 
 // 전역 속도 조절 버튼 바인딩
@@ -254,6 +254,15 @@ function loop(now: number) {
         const newDateStr = formatDateToYYYYMMDD(currentDate);
         datePickerEl.value = newDateStr;
         datePickerEl.dataset.prevValue = newDateStr;
+        
+        const s = getSunTimes(currentDate);
+        infoRiseEl.textContent = formatMinutes(s.sunrise);
+        infoSetEl.textContent = formatMinutes(s.sunset);
+        infoDateEl.textContent = currentDate.toLocaleDateString('ko-KR', {
+          month: 'short',
+          day: 'numeric',
+          weekday: 'short',
+        });
       }
     } else if (state.manualMinutes < 0) {
       const daysToShift = Math.ceil(-state.manualMinutes / 1440);
@@ -267,6 +276,15 @@ function loop(now: number) {
         const newDateStr = formatDateToYYYYMMDD(currentDate);
         datePickerEl.value = newDateStr;
         datePickerEl.dataset.prevValue = newDateStr;
+
+        const s = getSunTimes(currentDate);
+        infoRiseEl.textContent = formatMinutes(s.sunrise);
+        infoSetEl.textContent = formatMinutes(s.sunset);
+        infoDateEl.textContent = currentDate.toLocaleDateString('ko-KR', {
+          month: 'short',
+          day: 'numeric',
+          weekday: 'short',
+        });
       }
     }
 
