@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>QPI Ambient</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="logo.ico">
+    <meta name="theme-color" content="#000000">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="apple-icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #90caf9;
+            --on-primary-container: #003354;
+            --sun-x: 50vw;
+            --sun-y: 110vh;
+            --moon-x: 50vw;
+            --moon-y: 110vh;
+            --star-opacity: 0;
+            --star-rot: 0deg;
+            --star-mask-y: -50%;
+            --atm-opacity: 0;
+
+            /* 동적 글래스모피즘 변수 초기값 */
+            --glass-bg: rgba(20, 25, 35, 0.6);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: rgba(255, 255, 255, 0.95);
+            --text-sub: rgba(255, 255, 255, 0.6);
+            --ui-color: rgba(255, 255, 255, 0.4);
+            --chip-bg: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Chrome, Safari, Edge, Opera: number 스핀 버튼 제거 */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        /* Firefox: number 스핀 버튼 제거 */
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Roboto', sans-serif;
+            user-select: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            overscroll-behavior: none;
+        }
+
+        .layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+        }
+
+        .sky-base {
+            z-index: -2;
+            background: #050a19;
+        }
+
+        .sky-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            will-change: background;
+        }
+
+        .atmosphere {
+            z-index: 1;
+            /* 카메라 렌즈 및 대기 내부의 다중 미산란(Mie Scattering)을 시뮬레이션하는 정교한 광배 그라데이션 */
+            background: radial-gradient(circle at var(--sun-x) var(--sun-y), 
+                            rgba(255, 245, 220, 0.6) 0%, 
+                            rgba(255, 190, 110, 0.3) 8%, 
+                            rgba(255, 140, 60, 0.15) 22%, 
+                            transparent 75%);
+            mix-blend-mode: screen;
+            opacity: var(--atm-opacity);
+            will-change: opacity;
+            transform: translate3d(0, 0, 0);
+        }
+
+        /* 비회전형 스타 필터 마스크 레이어 (달의 위치에 구멍을 뚫어 밤하늘 은하수/별빛 완벽 차단) */
+        .star-wrapper {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            pointer-events: none;
+            mix-blend-mode: screen;
+            /* 달 크기(32px)에 맞춘 16px 반경의 완벽한 투명 홀 마스킹! */
+            mask-image: radial-gradient(circle at var(--moon-x) var(--moon-y), transparent 15.5px, #fff 16px);
+            -webkit-mask-image: radial-gradient(circle at var(--moon-x) var(--moon-y), transparent 15.5px, #fff 16px);
+        }
+
+        /* ESO 360도 은하수 전천 파노라마 극좌표 투영(Polar Projection) 적용 */
+        .star-container {
+            position: absolute;
+            top: calc(50% - 35.67vmax); /* 서울 기준 북극성 고도 반영 (50 - 45 * cos(37.5665)) */
+            left: 50%;
+            width: 245vmax;
+            height: 245vmax;
+            transform: translate(-50%, -50%) rotate(var(--star-rot)) translate3d(0, 0, 0);
+            opacity: var(--star-opacity);
+            background: url('./milky_way_all_sky.webp') no-repeat center center;
+            background-size: cover;
+            mix-blend-mode: screen;
+            mask-image: linear-gradient(to bottom, #fff calc(var(--star-mask-y) - 40%), transparent calc(var(--star-mask-y) + 40%));
+            -webkit-mask-image: linear-gradient(to bottom, #fff calc(var(--star-mask-y) - 40%), transparent calc(var(--star-mask-y) + 40%));
+            will-change: opacity, transform;
+        }
+
+        .satellite {
+            position: absolute;
+            width: 1.5px;
+            height: 1.5px;
+            z-index: 3;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 0 3px 1px rgba(255, 255, 255, 0.7);
+            will-change: transform;
+        }
+
+        /* GPU 가속 최적화를 위해 모든 위치 속성을 translate3d로 변경 */
+        .celestial {
+            z-index: 4;
+            transform: translate3d(0, 0, 0);
+        }
+
+        /* 물리 기반 카메라 노출 및 아웃오브포커스 보케(Bokeh) 구현 */
+        .sun-disk {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 60px;
+            height: 60px;
+            z-index: 100;
+            transform: translate3d(var(--sun-x), var(--sun-y), 0) translate(-50%, -50%);
+            border-radius: 50%;
+            background: #fff;
+            /* 극단적 밝기로 노출 오버된 태양 중심과 대기 산란(Bloom) 레이어 - 이전의 우수한 사진급 블렌딩 환원 */
+            box-shadow: 0 0 60px 20px #fff, 
+                        0 0 140px 50px rgba(255, 230, 150, 0.75), 
+                        0 0 240px 90px rgba(255, 190, 90, 0.45);
+            will-change: transform;
+            opacity: var(--sun-opacity, 1);
+        }
+
+        /* 1. 달의 위치 세팅용 최외곽 컨테이너 */
+        .moon-disk {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 32px;
+            height: 32px;
+            z-index: 101;
+            transform: translate3d(var(--moon-x), var(--moon-y), 0) translate(-50%, -50%);
+            will-change: transform;
+            opacity: var(--moon-opacity, 1);
+        }
+
+
+
+        /* 3. 어두운 면에 살짝 맺히는 지구 반사광 (지구조) - 그림자 효과 없음 */
+        .moon-earthshine {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.04);
+            box-shadow: inset 3px -1px 8px rgba(255, 255, 255, 0.12);
+            pointer-events: none;
+            opacity: var(--moon-earthshine-opacity, 1);
+        }
+
+        /* 4. 오직 위상에 따라 빛을 받는 영역만 드롭섀도우 코로나 투사! */
+        .moon-crescent {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            /* 위상 Path 경계를 한 치의 오차도 없이 따라 흐르는 코로나 광배 필터 */
+            filter: var(--moon-crescent-glow, drop-shadow(0 0 5px rgba(255, 245, 220, 0.85)) 
+                    drop-shadow(0 0 15px rgba(200, 225, 255, 0.4)));
+            opacity: var(--moon-crescent-opacity, 1);
+        }
+
+        .moon-aura {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 80vmax;
+            height: 80vmax;
+            z-index: 90;
+            transform: translate3d(var(--moon-x), var(--moon-y), 0) translate(-50%, -50%);
+            background: radial-gradient(circle, rgba(160, 205, 255, 0.15) 0%, transparent 60%);
+            mix-blend-mode: screen;
+            will-change: transform;
+            opacity: calc(var(--moon-opacity, 1) * var(--moon-aura-opacity, 1));
+        }
+
+        .lens-flare-container,
+        .moon-flare-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 150;
+            pointer-events: none;
+            mix-blend-mode: screen;
+            will-change: opacity;
+        }
+
+        .flare-ghost {
+            position: absolute;
+            left: 0;
+            top: 0;
+            transform: translate3d(50vw, 50vh, 0) translate(-50%, -50%);
+            border-radius: 50%;
+            will-change: transform;
+        }
+
+        /* 렌즈 특유 of 원형 회절 광륜 구현 */
+        .flare-halo {
+            background: radial-gradient(circle, transparent 63%, rgba(255, 140, 80, 0.15) 66%, rgba(255, 210, 120, 0.1) 68%, rgba(100, 180, 255, 0.08) 71%, transparent 74%);
+            filter: blur(8px);
+        }
+
+        /* 프리미엄 반사 방지(AR) 코팅 렌즈에서 관찰되는 오각형/육각형 보케 엘리먼트 */
+        .ghost-hex {
+            width: 80px;
+            height: 80px;
+            /* 외곽 테두리가 살짝 강조된 실제 보케 특유의 Ring 형태 광학 그라데이션 */
+            background: radial-gradient(circle, rgba(0, 180, 255, 0.03) 0%, rgba(255, 130, 70, 0.02) 65%, rgba(255, 255, 255, 0.14) 100%);
+            clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+            filter: blur(2.5px);
+        }
+
+        /* 광학 굴절에 의한 미세한 무지갯빛 색수차 고리 구현 */
+        .ghost-rainbow {
+            background: radial-gradient(circle, transparent 38%, rgba(255, 90, 90, 0.07) 43%, rgba(255, 190, 70, 0.06) 48%, rgba(90, 255, 130, 0.05) 53%, rgba(90, 160, 255, 0.07) 58%, transparent 64%);
+            filter: blur(12px);
+        }
+
+        /* 아나모픽(Anamorphic) 시네마틱 렌즈 특유의 수평 청색 플레어 스트리크 */
+        .sun-streak {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 200vw;
+            height: 4px;
+            transform: translate3d(var(--sun-x), var(--sun-y), 0) translate(-50%, -50%) rotate(-3deg);
+            background: linear-gradient(90deg, transparent, rgba(255, 230, 180, 0.45), rgba(255, 255, 255, 0.95), rgba(255, 230, 180, 0.45), transparent);
+            filter: blur(5px);
+            will-change: transform;
+        }
+
+        /* 실제 카메라 CCD 센서의 아날로그 입자감을 흉내 낸 무패턴 필름 그레인 오버레이 */
+        .film-grain {
+            position: fixed;
+            inset: 0;
+            z-index: 140;
+            opacity: 0.045;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        .viz-canvas {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 200px;
+            z-index: 10;
+            pointer-events: none;
+            mask-image: linear-gradient(to top, black 30%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to top, black 30%, transparent 100%);
+        }
+
+        .glass-panel-base {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+            transition: background 0.5s, border 0.5s, color 0.5s;
+        }
+
+        body.perf-active .glass-panel-base {
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .bottom-clock {
+            position: fixed;
+            bottom: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: var(--text-main);
+            font-weight: 300;
+            font-size: 16px;
+            letter-spacing: 4px;
+            z-index: 500;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            pointer-events: auto;
+            transition: color 0.5s;
+        }
+
+        .info-panel {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            width: 320px;
+            padding: 24px;
+            border-radius: 32px;
+            z-index: 510;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.5s, color 0.5s;
+        }
+
+        .info-panel.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .info-panel b {
+            background: var(--primary);
+            border-radius: 8px;
+            padding-left: 0.4em;
+            padding-right: 0.4em;
+            color: var(--on-primary-container);
+            font-weight: 500;
+            transition: background 0.5s, color 0.5s;
+        }
+
+        .fab {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            cursor: pointer;
+            z-index: 500;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background 0.5s, border 0.5s;
+        }
+
+        .popup {
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            width: 280px;
+            padding: 28px;
+            border-radius: 32px;
+            z-index: 520;
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.9) translateY(20px);
+            transform-origin: bottom right;
+            transition: opacity 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.5s, color 0.5s;
+        }
+
+        .popup.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: scale(1) translateY(0);
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 22px;
+        }
+
+        .label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            transition: color 0.5s;
+        }
+
+        .manual-ui.disabled {
+            opacity: 0.2;
+            pointer-events: none;
+            filter: grayscale(1);
+        }
+
+        .speed-chips {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .chip {
+            background: var(--chip-bg);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: 700;
+            transition: background 0.5s, color 0.5s;
+        }
+
+        .btn-action {
+            width: 100%;
+            padding: 14px;
+            background: var(--primary);
+            color: var(--on-primary-container);
+            border: none;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: background 0.5s, 0.2s;
+        }
+
+        input[type=range] {
+            width: 100%;
+            appearance: none;
+            background: var(--chip-bg);
+            height: 6px;
+            border-radius: 3px;
+            outline: none;
+            margin: 10px 0;
+            pointer-events: auto;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: background 0.5s;
+        }
+
+        input[type=range]::-moz-range-thumb {
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: background 0.5s;
+        }
+
+        .switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            display: inline-block;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider-sw {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(100, 100, 100, 0.5);
+            border-radius: 24px;
+            transition: 0.3s;
+            cursor: pointer;
+        }
+
+        .slider-sw:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.3s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        input[type=checkbox]+.slider-sw {
+            transition: background 0.5s, border 0.5s, color 0.5s;
+        }
+
+        input:checked+.slider-sw {
+            background: var(--primary);
+        }
+
+        input:checked+.slider-sw:before {
+            transform: translateX(20px);
+            background: var(--on-primary-container);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="layer sky-base"></div>
+    <div id="skyLayer" class="layer sky-layer"></div>
+    <div class="layer atmosphere"></div>
+    <!-- JWST Starmap 컨테이너 (달 위치에 구멍을 뚫기 위해 wrapper 레이어 도입) -->
+    <div class="layer star-wrapper">
+        <div class="layer star-container"></div>
+        <div id="satLayer" class="layer" style="z-index: 3;"></div>
+    </div>
+    <div class="layer celestial">
+        <div class="moon-aura"></div>
+        <div class="moon-disk">
+            <!-- 1. 달의 가려진 부분의 반사광 (지구조/Earthshine 실루엣) - 스타랩 마스킹 덕분에 완벽 무결점 합성! -->
+            <div class="moon-earthshine"></div>
+            <!-- 2. 오직 빛을 받는 실제 천문학적 위상 부분 (이 부분만 드롭섀도우 코로나 투사!) -->
+            <div class="moon-crescent">
+                <svg width="32" height="32" viewBox="0 0 32 32" style="width: 100%; height: 100%; display: block;">
+                    <!-- 실제 위상에 맞춰 자바스크립트가 수학적 패스(Path)를 동적 렌더링 -->
+                    <path id="moonCrescentPath" d="" fill="#fff6e3" />
+                </svg>
+            </div>
+        </div>
+        <div class="sun-disk"></div>
+    </div>
+
+    <div class="lens-flare-container" id="sunFlareCont">
+        <div class="sun-streak"></div>
+        <div class="flare-ghost flare-halo" id="h-1" style="width: 60vmax; height: 60vmax;"></div>
+        <div class="flare-ghost ghost-rainbow" id="r-1" style="width: 500px; height: 500px;"></div>
+        <div class="flare-ghost ghost-hex" id="g-1" style="width: 100px; height: 100px;"></div>
+        <div class="flare-ghost ghost-hex" id="g-2"
+            style="width: 50px; height: 50px; background: rgba(150, 255, 200, 0.12);"></div>
+        <div class="flare-ghost ghost-tiny" id="t-1"
+            style="width: 10px; height: 10px; background: #fff; box-shadow: 0 0 10px #fff;"></div>
+    </div>
+
+    <div class="moon-flare-container" id="moonFlareCont">
+        <div class="flare-ghost ghost-hex" id="mg-1"
+            style="width: 40px; height: 40px; background: rgba(200, 230, 255, 0.1);"></div>
+        <div class="flare-ghost flare-halo" id="mh-1" style="width: 20vmax; height: 20vmax; opacity: 0.2;"></div>
+    </div>
+
+    <div class="film-grain"></div>
+    <canvas id="vizCanvas" class="viz-canvas"></canvas>
+
+    <div class="info-panel glass-panel-base" id="infoPanel">
+        <div class="row"><span><b>DATE</b> <span id="infoDate">-</span></span></div>
+        <div class="row" style="font-size: 10px;"><span><b>RISE</b> <span id="infoRise">-</span></span><span><b>SET</b>
+                <span id="infoSet">-</span></span></div>
+        <hr style="border: 0; border-top: 1px solid var(--glass-border); margin-bottom: 20px;">
+        <div class="row"><span class="label">Auto Sync</span><label class="switch"><input type="checkbox" id="autoCheck"
+                    checked onchange="handleSyncToggle()"><span class="slider-sw"></span></label></div>
+        <div id="manualSection" class="manual-ui disabled">
+            <div class="row" style="flex-direction:column; align-items:flex-start; gap:6px;">
+                <span class="label">Simulated Date</span>
+                <input type="date" id="datePicker" style="display: none;">
+                <div id="datePickerContainer" style="
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    width: 100%;
+                    box-sizing: border-box;
+                ">
+                    <input type="number" id="dateYY" min="1970" max="2100" style="
+                        width: 38%;
+                        padding: 8px 6px;
+                        border-radius: 8px;
+                        border: 1px solid var(--glass-border);
+                        background: var(--glass-bg);
+                        color: var(--text-main);
+                        font-family: inherit;
+                        font-size: 13px;
+                        outline: none;
+                        text-align: center;
+                        box-sizing: border-box;
+                    ">
+                    <span style="color: var(--text-sub); font-size: 12px;">년</span>
+                    <input type="number" id="dateMM" min="1" max="12" style="
+                        width: 25%;
+                        padding: 8px 6px;
+                        border-radius: 8px;
+                        border: 1px solid var(--glass-border);
+                        background: var(--glass-bg);
+                        color: var(--text-main);
+                        font-family: inherit;
+                        font-size: 13px;
+                        outline: none;
+                        text-align: center;
+                        box-sizing: border-box;
+                    ">
+                    <span style="color: var(--text-sub); font-size: 12px;">월</span>
+                    <input type="number" id="dateDD" min="1" max="31" style="
+                        width: 25%;
+                        padding: 8px 6px;
+                        border-radius: 8px;
+                        border: 1px solid var(--glass-border);
+                        background: var(--glass-bg);
+                        color: var(--text-main);
+                        font-family: inherit;
+                        font-size: 13px;
+                        outline: none;
+                        text-align: center;
+                        box-sizing: border-box;
+                    ">
+                    <span style="color: var(--text-sub); font-size: 12px;">일</span>
+                </div>
+            </div>
+            <div class="row" style="flex-direction:column; align-items:flex-start; gap:4px;"><span class="label">Time
+                    Slider</span><input type="range" id="timeRange" min="0" max="1439.99" step="0.01" value="720"></div>
+            <div class="row"><span class="label">Speed (<span id="speedVal">1</span>x)</span>
+                <div class="speed-chips"><button class="chip" onclick="adjustSpeed(0.5)">x0.5</button><button
+                        class="chip" onclick="adjustSpeed(2)">x2</button><button class="chip"
+                        onclick="adjustSpeed(-1)">x-1</button></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-clock" id="clock" onclick="toggleInfo()"><span id="clockT">00:00:00</span><span
+            style="position: absolute; inset: 0;"></span></div>
+
+    <script>
+        // 대한민국 서울 (정남향 기준)
+        const LAT = 37.5665, LON = 126.9780;
+        const root = document.documentElement.style;
+        const skyLayer = document.getElementById('skyLayer');
+        const clockEl = document.getElementById('clockT');
+        const timeRangeEl = document.getElementById('timeRange');
+        const datePickerEl = document.getElementById('datePicker');
+        const autoCheckEl = document.getElementById('autoCheck');
+
+        let isPerfMode = false;
+        let frameCounter = -1;
+
+        const flareEls = {
+            'h-1': document.getElementById('h-1'), 'r-1': document.getElementById('r-1'),
+            'g-1': document.getElementById('g-1'), 'g-2': document.getElementById('g-2'),
+            't-1': document.getElementById('t-1'), 'mg-1': document.getElementById('mg-1'),
+            'mh-1': document.getElementById('mh-1'),
+            'sunFC': document.getElementById('sunFlareCont'),
+            'moonFC': document.getElementById('moonFlareCont')
+        };
+
+        let manualMinutes = 720, lastTimestamp = performance.now(), currentSpeed = 1;
+        let isCatchingUp = false, catchUpStartMinutes = 0, catchUpStartTime = 0;
+        const CATCHUP_DURATION = 2000;
+        let lastClockText = "";
+        let cachedSunTimes = null, lastCachedDateStr = "";
+
+        // 실제 날짜 기준의 달의 위상 계산 엔진 (New Moon Epoch: 2000-01-06 18:14 UTC)
+        function getMoonAge(date) {
+            const time = date.getTime();
+            const jd = (time / 86400000) + 2440587.5;
+            let age = (jd - 2451550.26) % 29.53059;
+            if (age < 0) age += 29.53059;
+            return age;
+        }
+
+        // 달의 황도상 위상을 수학적으로 완벽한 SVG Path 데이터로 변환하는 생성기
+        function getMoonPath(age) {
+            const r = 16;
+            const phase = age / 29.53059; // 0 to 1
+            const rx = Math.abs(Math.cos(phase * 2 * Math.PI)) * r;
+            const sweep2 = (phase < 0.25 || phase >= 0.75) ? 0 : 1;
+            
+            if (phase < 0.5) {
+                // Waxing Moon (오른쪽이 차오름)
+                return `M 16 0 A 16 16 0 0 1 16 32 A ${rx} 16 0 0 ${sweep2} 16 0 Z`;
+            } else {
+                // Waning Moon (왼쪽이 차오름)
+                return `M 16 0 A ${rx} 16 0 0 ${sweep2} 16 32 A 16 16 0 0 1 16 0 Z`;
+            }
+        }
+
+        // 남중고도 계산 추가
+        function getSunTimes(date) {
+            const dateStr = date.toDateString();
+            if (cachedSunTimes && lastCachedDateStr === dateStr) return cachedSunTimes;
+            const dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
+            const rad = Math.PI / 180;
+            const gamma = 2 * Math.PI / 365 * (dayOfYear - 1);
+            const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(gamma) - 0.032077 * Math.sin(gamma) - 0.014615 * Math.cos(2 * gamma) - 0.040849 * Math.sin(2 * gamma));
+            // 적위(declination)
+            const decl = 0.006918 - 0.399912 * Math.cos(gamma) + 0.070257 * Math.sin(gamma);
+            const ha_rad = Math.acos(Math.cos(90.833 * rad) / (Math.cos(LAT * rad) * Math.cos(decl)) - Math.tan(LAT * rad) * Math.tan(decl));
+            const ha = ha_rad / rad;
+
+            // 태양의 최대 남중고도 (서울 기준 여름/겨울 편차 반영)
+            const maxAlt = 90 - LAT + (decl / rad);
+
+            lastCachedDateStr = dateStr;
+            cachedSunTimes = {
+                sunrise: 720 - 4 * (LON + ha) - eqtime + 540,
+                sunset: 720 - 4 * (LON - ha) - eqtime + 540,
+                maxAlt: maxAlt,
+                declDeg: decl / rad
+            };
+            return cachedSunTimes;
+        }
+
+        // 플레어 렌더링 최적화 (DOM 접근 제거, translate3d로 GPU 가속)
+        function updateOptics(dx, dy, alt, isMoon = false, moonGlowFactor = 1) {
+            const cont = isMoon ? flareEls.moonFC : flareEls.sunFC;
+            const fadeStart = 0;
+            const visibleRange = 0.3;
+            const rawOpacity = (alt - fadeStart) / visibleRange;
+            const finalOpacity = Math.max(0, Math.min(1, rawOpacity));
+
+            const maxOpacity = isMoon ? (0.4 * moonGlowFactor) : 0.95;
+            cont.style.opacity = finalOpacity * maxOpacity;
+
+            if (finalOpacity <= 0) return;
+
+            const setFP = (id, s) => {
+                const el = flareEls[id];
+                if (el) {
+                    const px = dx * (1 - s);
+                    const py = dy * (1 - s);
+                    el.style.transform = `translate3d(calc(50vw + ${px}vmax), calc(50vh + ${py}vmax), 0) translate(-50%, -50%)`;
+                }
+            };
+
+            if (!isMoon) {
+                setFP('h-1', 0.5); setFP('r-1', 1.3); setFP('g-1', 1.6); setFP('g-2', 1.1); setFP('t-1', 0.25);
+            } else {
+                setFP('mg-1', 1.2); setFP('mh-1', 0.5);
+            }
+        }
+
+        // 연주운동(annual motion) 및 수동 시뮬레이션을 위한 날짜 계산 헬퍼 함수들
+        function formatDateToYYYYMMDD(date) {
+            const y = date.getFullYear();
+            const m = (date.getMonth() + 1).toString().padStart(2, '0');
+            const d = date.getDate().toString().padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function getSimDate(m) {
+            const nowD = new Date();
+            if (autoCheckEl.checked) {
+                const realM = nowD.getHours() * 60 + nowD.getMinutes() + nowD.getSeconds() / 60;
+                const diffM = m - realM;
+                return new Date(nowD.getTime() + diffM * 60 * 1000);
+            } else {
+                if (!datePickerEl.value) return nowD;
+                const [y, mStr, dStr] = datePickerEl.value.split('-').map(Number);
+                const h = Math.floor(m / 60);
+                const mins = Math.floor(m % 60);
+                const secs = Math.round((m * 60) % 60);
+                return new Date(y, mStr - 1, dStr, h, mins, secs);
+            }
+        }
+
+        // 서울 경도(126.9780 East) 기준 지방항성시(LST) 및 실시간 일주/연주운동 연동 엔진 (simDate 연동)
+        function getSeoulSiderealTime(m, simDate) {
+            // Julian Date 계산 (UTC 기준 일수 계산)
+            const jd = (simDate.getTime() / 86400000) + 2440587.5;
+            const d = jd - 2451545.0; // J2000.0 Epoch 기준 경과 일수
+            
+            // 그리니치 평균 항성시(GMST) 계산 (도 단위)
+            let gmst = (280.46061837 + 360.98564736629 * d) % 360;
+            if (gmst < 0) gmst += 360;
+            
+            // 서울 경도를 더해 지방항성시(LST) 계산
+            let lst = (gmst + 126.9780) % 360;
+            if (lst < 0) lst += 360;
+            
+            return lst;
+        }
+
+        const R_pos = 45; // radius in vmax
+
+        function getHorizontalCoords(decl, ha) {
+            const latRad = LAT * Math.PI / 180;
+            const declRad = decl * Math.PI / 180;
+            const haRad = ha * Math.PI / 180;
+            
+            const altSin = Math.sin(declRad) * Math.sin(latRad) + Math.cos(declRad) * Math.cos(latRad) * Math.cos(haRad);
+            const altitude = Math.asin(Math.max(-1, Math.min(1, altSin))) * 180 / Math.PI;
+            
+            const altRad = altitude * Math.PI / 180;
+            const azCos = (Math.sin(declRad) - Math.sin(altRad) * Math.sin(latRad)) / (Math.cos(altRad) * Math.cos(latRad));
+            let azimuth = Math.acos(Math.max(-1, Math.min(1, azCos))) * 180 / Math.PI;
+            if (Math.sin(haRad) > 0) {
+                azimuth = 360 - azimuth;
+            }
+            return { altitude, azimuth };
+        }
+
+        function getScreenCoords(decl, ha) {
+            const coords = getHorizontalCoords(decl, ha);
+            const alt = coords.altitude;
+            const az = coords.azimuth;
+            
+            // 동(90도)은 왼쪽(-38vmax), 서(270도)는 오른쪽(+38vmax), 남(180도)은 중앙(0)
+            const dx = 38 * Math.sin((az - 180) * Math.PI / 180);
+            
+            // 고도 0도(지평선)는 화면 하단 근처(+25vmax), 남중고도는 화면 상단 근처(-22vmax)
+            // 고도가 올라갈수록 y좌표는 위로(마이너스 방향) 이동
+            const dy = 25 - alt * 0.62;
+            
+            return {
+                x: `calc(50vw + ${dx}vmax)`,
+                y: `calc(50vh + ${dy}vmax)`,
+                dx: dx,
+                dy: dy,
+                altitude: alt,
+                azimuth: az
+            };
+        }
+
+        let lastZenith = "", lastHorizon = "";
+
+        function updateSky(m, simDate) {
+            const mG = (m % 1440 + 1440) % 1440;
+
+            const solar = getSunTimes(simDate);
+
+            const dawnStart = solar.sunrise - 135;
+            const preSunset = solar.sunset - 135;
+            const sunsetEnd = solar.sunset + 30;
+
+            const kf = [
+                { m: -1440, z: [5, 10, 25], hz: [10, 20, 35] },
+                { m: dawnStart, z: [5, 10, 25], hz: [10, 20, 35] },
+                { m: solar.sunrise, z: [40, 80, 140], hz: [255, 150, 100] },
+                { m: (solar.sunrise + solar.sunset) / 2, z: [25, 90, 180], hz: [180, 230, 255] },
+                { m: preSunset, z: [25, 90, 180], hz: [180, 230, 255] },
+                { m: solar.sunset, z: [20, 30, 80], hz: [245, 125, 75] },
+                { m: solar.sunset + 15, z: [10, 15, 40], hz: [60, 30, 60] },
+                { m: sunsetEnd, z: [5, 10, 25], hz: [10, 20, 35] },
+                { m: 1440, z: [5, 10, 25], hz: [10, 20, 35] }
+            ];
+
+            let zenith = 'rgb(5, 10, 25)', horizon = 'rgb(10, 20, 35)';
+            let brightness = 15;
+
+            // 달 고도별 하늘색 동적 추출을 위해 범위를 넓힌 RGB 변수들 정의
+            let r = 10, g = 20, b = 35;
+            let zr = 5, zg = 10, zb = 25;
+
+            for (let i = 0; i < kf.length - 1; i++) {
+                if (mG >= kf[i].m && mG < kf[i + 1].m) {
+                    const t = (mG - kf[i].m) / (kf[i + 1].m - kf[i].m);
+                    const l = (c1, c2) => c1 + (c2 - c1) * t;
+                    r = Math.round(l(kf[i].hz[0], kf[i + 1].hz[0]));
+                    g = Math.round(l(kf[i].hz[1], kf[i + 1].hz[1]));
+                    b = Math.round(l(kf[i].hz[2], kf[i + 1].hz[2]));
+                    zr = Math.round(l(kf[i].z[0], kf[i + 1].z[0]));
+                    zg = Math.round(l(kf[i].z[1], kf[i + 1].z[1]));
+                    zb = Math.round(l(kf[i].z[2], kf[i + 1].z[2]));
+                    zenith = `rgb(${zr}, ${zg}, ${zb})`;
+                    horizon = `rgb(${r}, ${g}, ${b})`;
+                    brightness = (r + g + b) / 3;
+                    break;
+                }
+            }
+
+            let tContrast = Math.min(1, Math.max(0, (brightness - 22) / 200));
+            if (tContrast < 0.5) tContrast *= 0.5;
+            if (tContrast > 0.5) tContrast = tContrast * 0.5 + 0.5;
+            const dark_colors = [20, 25, 35, 0.65, 255, 255, 255, 255, 255, 255, 0x90, 0xca, 0xf9, 0x00, 0x33, 0x54, 255, 0.1];
+            const bright_colors = [235, 245, 255, 0.45, 0, 20, 40, 0, 20, 50, 0x00, 0x7a, 0xff, 0xfa, 0xfa, 0xfa, 55, 0.2];
+            const colors = dark_colors.map((e, i) => (e * (1 - tContrast) + bright_colors[i] * tContrast));
+
+            root.setProperty('--glass-bg', `rgba(${colors[0]}, ${colors[1]}, ${colors[2]}, ${colors[3]})`);
+            root.setProperty('--text-main', `rgb(${colors[4]}, ${colors[5]}, ${colors[6]})`);
+            root.setProperty('--text-sub', `rgba(${colors[7]}, ${colors[8]}, ${colors[9]}, 0.7)`);
+            root.setProperty('--primary', `rgb(${colors[10]}, ${colors[11]}, ${colors[12]})`);
+            root.setProperty('--on-primary-container', `rgb(${colors[13]}, ${colors[14]}, ${colors[15]})`);
+            root.setProperty('--glass-border', `rgba(${colors[16]}, ${colors[16]}, ${colors[16]}, ${colors[17]})`);
+            root.setProperty('--chip-bg', `rgba(${colors[16]}, ${colors[16]}, ${colors[16]}, 0.1)`);
+
+            // 지구조(earthshine), 아우라(aura), 크레센트 코로나(glow) 동적 제어
+            // 밤하늘 기준 horizon brightness는 약 21.67입니다.
+            const earthshineOpacity = Math.max(0, Math.min(1, 1 - (brightness - 21.67) / 8));
+            const moonAuraOpacity = Math.max(0, Math.min(1, 1 - (brightness - 21.67) / 15));
+            root.setProperty('--moon-earthshine-opacity', earthshineOpacity);
+            root.setProperty('--moon-aura-opacity', moonAuraOpacity);
+            
+            if (brightness > 30) {
+                root.setProperty('--moon-crescent-glow', 'none');
+            } else {
+                root.setProperty('--moon-crescent-glow', 'drop-shadow(0 0 5px rgba(255, 245, 220, 0.85)) drop-shadow(0 0 15px rgba(200, 225, 255, 0.4))');
+            }
+
+            if (zenith !== lastZenith || horizon !== lastHorizon) {
+                skyLayer.style.background = `linear-gradient(to bottom, ${zenith} 0%, ${horizon} 100%)`;
+                root.setProperty('--sky-zenith', zenith);
+                root.setProperty('--sky-horizon', horizon);
+                lastZenith = zenith; lastHorizon = horizon;
+            }
+
+            // 태양의 실제 천문 궤도 시뮬레이션 (상승 타원 아치 모델)
+            const dayLength = solar.sunset - solar.sunrise;
+            const sunT = (mG - solar.sunrise) / dayLength; // 0 (sunrise) to 1 (sunset)
+            
+            let sunCoords = { x: '0vw', y: '150vh', dx: 0, dy: 100, altitude: -10 };
+            
+            if (mG >= solar.sunrise - 20 && mG <= solar.sunset + 20) {
+                const progAngle = (sunT * 2 - 1) * 90; // -90 to +90 degrees
+                const rad = progAngle * Math.PI / 180;
+                
+                const dx = 38 * Math.sin(rad);
+                const maxAlt = solar.maxAlt;
+                const R_y = 25 + maxAlt * 0.45;
+                const dy = 25 - R_y * Math.cos(rad);
+                
+                const alt = (25 - dy) / 0.62;
+                
+                sunCoords = {
+                    x: `calc(50vw + ${dx}vmax)`,
+                    y: `calc(50vh + ${dy}vmax)`,
+                    dx: dx,
+                    dy: dy,
+                    altitude: alt
+                };
+            }
+            
+            const sunOpacity = Math.max(0, Math.min(1, (sunCoords.altitude - (-2)) / 7));
+            root.setProperty('--sun-opacity', sunOpacity);
+
+            if (sunCoords.altitude >= -2.0) {
+                root.setProperty('--sun-x', sunCoords.x);
+                root.setProperty('--sun-y', sunCoords.y);
+                
+                const maxAltFactor = solar.maxAlt / 90;
+                const normalizedAlt = Math.max(0, sunCoords.altitude / 90);
+                root.setProperty('--atm-opacity', Math.max(0, Math.min(0.85, (normalizedAlt / maxAltFactor) * 1.2)));
+                
+                updateOptics(sunCoords.dx, sunCoords.dy, sunCoords.altitude, false);
+            } else {
+                root.setProperty('--sun-y', '150vh');
+                root.setProperty('--atm-opacity', 0);
+                flareEls.sunFC.style.opacity = 0;
+            }
+
+            // 달의 실제 천문 궤도 시뮬레이션 (상승 타원 아치 모델)
+            const moonAge = getMoonAge(simDate);
+            const elongation = (moonAge / 29.53059) * 360;
+            
+            // 태양의 등속 매개변수 각도와 동일하게 하되, 연신각(elongation)을 차감하여 달의 실제 상대적 위치 반영
+            let haMoon = (sunT * 2 - 1) * 90 - elongation;
+            haMoon = ((haMoon + 180) % 360 + 360) % 360 - 180; // 범위 [-180, 180] 보정
+            
+            let moonCoords = { x: '0vw', y: '150vh', dx: 0, dy: 100, altitude: -10 };
+            
+            if (haMoon >= -105 && haMoon <= 105) {
+                const rad = haMoon * Math.PI / 180;
+                
+                const dx = 38 * Math.sin(rad);
+                const moonMaxAlt = 90 - LAT - solar.declDeg;
+                const R_y = 25 + moonMaxAlt * 0.45;
+                const dy = 25 - R_y * Math.cos(rad);
+                
+                const alt = (25 - dy) / 0.62;
+                
+                moonCoords = {
+                    x: `calc(50vw + ${dx}vmax)`,
+                    y: `calc(50vh + ${dy}vmax)`,
+                    dx: dx,
+                    dy: dy,
+                    altitude: alt
+                };
+            }
+            
+            const moonOpacity = Math.max(0, Math.min(1, (moonCoords.altitude - (-2)) / 7));
+            root.setProperty('--moon-opacity', moonOpacity);
+
+            if (moonCoords.altitude >= -2.0) {
+                root.setProperty('--moon-x', moonCoords.x);
+                root.setProperty('--moon-y', moonCoords.y);
+                
+                const moonPath = getMoonPath(moonAge);
+
+                if (frameCounter % 30 === 0) {
+                    console.log(`[Lunar Sync] Date: ${simDate.toLocaleDateString()} | Moon Age: ${moonAge.toFixed(2)} days | Phase: ${(moonAge / 29.53059).toFixed(2)}`);
+                }
+
+                const crescentPathEl = document.getElementById('moonCrescentPath');
+                if (crescentPathEl) {
+                    crescentPathEl.setAttribute('d', moonPath);
+                }
+
+                const moonGlowFactor = Math.max(0, Math.min(1, 1 - (brightness - 21.67) / 20));
+                updateOptics(moonCoords.dx, moonCoords.dy, moonCoords.altitude, true, moonGlowFactor * moonOpacity);
+            } else {
+                root.setProperty('--moon-y', '150vh');
+                flareEls.moonFC.style.opacity = 0;
+            }
+
+            // JWST 배경 페이딩 제어 (천문학적 박명 시간대에 맞춰 별빛 페이딩 최적화)
+            // 은하수가 더 일찍 보이고 일출 후에도 더 오래 남도록 일몰 15분 전부터 별이 나타나고 일출 15분 후까지 별이 남도록 수정
+            let sOp = 0, sMaskY = -50;
+            const twilightDuration = 45; 
+
+            if (mG >= solar.sunset - 15 && mG <= solar.sunset - 15 + twilightDuration) {
+                // 일몰 15분 전부터 황혼: 별들이 나타나기 시작
+                sOp = (mG - (solar.sunset - 15)) / twilightDuration;
+                sMaskY = -50 + (200 * sOp);
+            } else if (mG >= solar.sunrise + 15 - twilightDuration && mG <= solar.sunrise + 15) {
+                // 일출 15분 후까지 새벽: 별들이 사라짐
+                sOp = 1 - (mG - (solar.sunrise + 15 - twilightDuration)) / twilightDuration;
+                sMaskY = -50 + (200 * sOp);
+            } else if (mG > solar.sunset - 15 + twilightDuration || mG < solar.sunrise + 15 - twilightDuration) {
+                // 한밤중/황혼 이후: 별들이 100% 보임
+                sOp = 1;
+                sMaskY = 150;
+            } else {
+                // 한낮: 별들이 보이지 않음
+                sOp = 0;
+                sMaskY = -50;
+            }
+
+            // 서울의 지방항성시에 따른 실제 천문관측 연주/일주운동 밤하늘 회전각 결정 (북극성 기준 반시계 방향 회전)
+            // Serge Brunier 전천 이미지의 방향성을 서울의 실시간 밤하늘과 일치시키기 위한 보정값 (357도)
+            const lst = getSeoulSiderealTime(m, simDate);
+            const starRot = (357 - lst) % 360;
+            
+            root.setProperty('--star-opacity', Math.max(0, Math.min(1, sOp)));
+            root.setProperty('--star-mask-y', sMaskY + '%');
+            root.setProperty('--star-rot', starRot + 'deg');
+        }
+
+        function handleSyncToggle() {
+            if (autoCheckEl.checked) {
+                isCatchingUp = true; catchUpStartTime = performance.now(); catchUpStartMinutes = manualMinutes;
+                document.getElementById('manualSection').classList.add('disabled');
+            } else {
+                isCatchingUp = false; document.getElementById('manualSection').classList.remove('disabled');
+                const d = new Date(); manualMinutes = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+            }
+        }
+
+        function adjustSpeed(f) {
+            let currentSign = ((currentSpeed * f) > 0) ? 1 : -1;
+            currentSpeed = currentSign * Math.max(0.5, Math.min(2048, Math.abs(currentSpeed * f)));
+            document.getElementById('speedVal').textContent = currentSpeed;
+        }
+
+        function togglePopup() { document.getElementById('popup').classList.toggle('active'); }
+        function toggleInfo() {
+            document.getElementById('infoPanel').classList.toggle('active');
+            const s = getSunTimes(new Date());
+            document.getElementById('infoRise').textContent = formatMinutes(s.sunrise);
+            document.getElementById('infoSet').textContent = formatMinutes(s.sunset);
+            document.getElementById('infoDate').textContent = new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' });
+        }
+        function formatMinutes(minutes) { const mSafe = (minutes + 1440) % 1440; return `${Math.floor(mSafe / 60).toString().padStart(2, '0')}:${Math.floor(mSafe % 60).toString().padStart(2, '0')}`; }
+
+        timeRangeEl.oninput = function () { 
+            if (!autoCheckEl.checked) { 
+                manualMinutes = parseFloat(this.value); 
+                updateSky(manualMinutes, getSimDate(manualMinutes)); 
+            } 
+        };
+
+        // 3구역 분할형 Date Picker 동기화 및 롤오버 처리
+        const dateYY = document.getElementById('dateYY');
+        const dateMM = document.getElementById('dateMM');
+        const dateDD = document.getElementById('dateDD');
+
+        const originalValueDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+        Object.defineProperty(datePickerEl, 'value', {
+            get() {
+                return originalValueDescriptor.get.call(this);
+            },
+            set(val) {
+                originalValueDescriptor.set.call(this, val);
+                if (val) {
+                    const [y, m, d] = val.split('-');
+                    if (dateYY && dateMM && dateDD) {
+                        dateYY.value = parseInt(y);
+                        dateMM.value = parseInt(m);
+                        dateDD.value = parseInt(d);
+                    }
+                }
+            }
+        });
+
+        function onDateUIInput() {
+            const y = (dateYY.value || '2026').padStart(4, '0');
+            const m = (dateMM.value || '01').padStart(2, '0');
+            const d = (dateDD.value || '01').padStart(2, '0');
+            const newDateStr = `${y}-${m}-${d}`;
+            originalValueDescriptor.set.call(datePickerEl, newDateStr);
+            datePickerEl.dataset.prevValue = newDateStr;
+            updateSky(manualMinutes, getSimDate(manualMinutes));
+        }
+
+        dateYY.oninput = function() {
+            onDateUIInput();
+        };
+
+        dateMM.oninput = function() {
+            let y = parseInt(dateYY.value) || new Date().getFullYear();
+            let m = parseInt(dateMM.value) || 1;
+            
+            if (m > 12) {
+                m = 1;
+                y += 1;
+                dateYY.value = y;
+                dateMM.value = m;
+            } else if (m < 1) {
+                m = 12;
+                y -= 1;
+                dateYY.value = y;
+                dateMM.value = m;
+            }
+            onDateUIInput();
+        };
+
+        dateDD.oninput = function() {
+            let y = parseInt(dateYY.value) || new Date().getFullYear();
+            let m = parseInt(dateMM.value) || 1;
+            let d = parseInt(dateDD.value) || 1;
+            
+            const lastDay = new Date(y, m, 0).getDate();
+            
+            if (d > lastDay) {
+                d = 1;
+                m += 1;
+                if (m > 12) {
+                    m = 1;
+                    y += 1;
+                }
+                dateYY.value = y;
+                dateMM.value = m;
+                dateDD.value = d;
+            } else if (d < 1) {
+                m -= 1;
+                if (m < 1) {
+                    m = 12;
+                    y -= 1;
+                }
+                const prevLastDay = new Date(y, m, 0).getDate();
+                d = prevLastDay;
+                dateYY.value = y;
+                dateMM.value = m;
+                dateDD.value = d;
+            }
+            onDateUIInput();
+        };
+
+        // 초기 동기화 호출
+        if (datePickerEl.value) {
+            datePickerEl.value = datePickerEl.value;
+        }
+
+        function loop(now) {
+            const dt = now - lastTimestamp;
+            lastTimestamp = now;
+            frameCounter++;
+
+            let m;
+            const d = new Date();
+            const target = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+
+            if (autoCheckEl.checked) {
+                if (isCatchingUp) {
+                    let t = Math.min((now - catchUpStartTime) / CATCHUP_DURATION, 1);
+                    let ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+                    let dist = (target - catchUpStartMinutes + 1440) % 1440;
+                    if (dist > 720) dist -= 1440;
+                    m = catchUpStartMinutes + (dist * ease);
+                    if (t >= 1) isCatchingUp = false;
+                    manualMinutes = m;
+                } else { m = target; manualMinutes = m; }
+            } else {
+                manualMinutes += (dt / 60000) * currentSpeed;
+                
+                // 자동 날짜 롤오버 (24시간 초과/미만 시 다음날/이전날로 변경)
+                if (manualMinutes >= 1440) {
+                    const daysToShift = Math.floor(manualMinutes / 1440);
+                    manualMinutes = manualMinutes % 1440;
+                    
+                    if (datePickerEl.value) {
+                        const [y, mStr, dStr] = datePickerEl.value.split('-').map(Number);
+                        const currentDate = new Date(y, mStr - 1, dStr);
+                        currentDate.setDate(currentDate.getDate() + daysToShift);
+                        
+                        const newDateStr = formatDateToYYYYMMDD(currentDate);
+                        datePickerEl.value = newDateStr;
+                        datePickerEl.dataset.prevValue = newDateStr;
+                    }
+                } else if (manualMinutes < 0) {
+                    const daysToShift = Math.ceil(-manualMinutes / 1440);
+                    manualMinutes = (manualMinutes % 1440 + 1440) % 1440;
+                    
+                    if (datePickerEl.value) {
+                        const [y, mStr, dStr] = datePickerEl.value.split('-').map(Number);
+                        const currentDate = new Date(y, mStr - 1, dStr);
+                        currentDate.setDate(currentDate.getDate() - daysToShift);
+                        
+                        const newDateStr = formatDateToYYYYMMDD(currentDate);
+                        datePickerEl.value = newDateStr;
+                        datePickerEl.dataset.prevValue = newDateStr;
+                    }
+                }
+                
+                m = manualMinutes;
+            }
+
+            const mG = ((m % 1440) + 1440) % 1440;
+            timeRangeEl.value = mG;
+
+            // 시계 텍스트 업데이트 비용 최적화
+            const hRaw = Math.floor(mG / 60), mins = Math.floor(mG % 60), secs = Math.round((mG * 60) % 60);
+            const newText = `${hRaw.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            if (newText !== lastClockText) {
+                clockEl.textContent = newText;
+                lastClockText = newText;
+            }
+
+            const simDate = getSimDate(m);
+            if (autoCheckEl.checked) {
+                datePickerEl.value = formatDateToYYYYMMDD(d);
+                datePickerEl.dataset.prevValue = datePickerEl.value;
+            }
+
+            if (!isPerfMode || isCatchingUp || (!autoCheckEl.checked && Math.abs(currentSpeed) > 2) || frameCounter % 30 === 0) {
+                updateSky(m, simDate);
+            }
+
+            requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+
+        /* 인공위성 / 스타링크 기능 */
+        const satLayer = document.getElementById('satLayer');
+
+        function animateObject(isStarlink = false) {
+            const solar = getSunTimes(getSimDate(manualMinutes));
+            const mG = (manualMinutes % 1440 + 1440) % 1440;
+            let tempSunAlt = -1;
+            if (mG >= solar.sunrise && mG <= solar.sunset) {
+                const prog = (mG - solar.sunrise) / (solar.sunset - solar.sunrise);
+                tempSunAlt = Math.sin(prog * Math.PI);
+            }
+            if (tempSunAlt > 0.05) return;
+
+            const side = Math.floor(Math.random() * 4);
+            let sx, sy, ex, ey;
+            if (side === 0) { sx = -15; sy = Math.random() * 100; ex = 115; ey = Math.random() * 100; }
+            else if (side === 1) { sx = 115; sy = Math.random() * 100; ex = -15; ey = Math.random() * 100; }
+            else if (side === 2) { sx = Math.random() * 100; sy = -15; ex = Math.random() * 100; ey = 115; }
+            else { sx = Math.random() * 100; sy = 115; ex = Math.random() * 100; ey = -15; }
+            const duration = (Math.random() * 20000 + 40000) / ((autoCheckEl.checked) ? 1 : Math.min(Math.abs(currentSpeed), 256));
+
+            const count = isStarlink ? (isPerfMode ? 8 : 18) : 1;
+
+            for (let i = 0; i < count; i++) {
+                const delay = isStarlink ? i * (700 + Math.random() * 400) / ((autoCheckEl.checked) ? 1 : Math.min(Math.abs(currentSpeed), 256)) : 0;
+                setTimeout(() => {
+                    const sat = document.createElement('div'); sat.className = 'satellite';
+                    sat.style.opacity = Math.random() * 0.5 + 0.3;
+                    satLayer.appendChild(sat);
+                    const startT = performance.now();
+                    const move = (now) => {
+                        const t = (now - startT) / duration;
+                        if (t < 1) {
+                            // 위성 이동도 transform3d로 GPU 가속 적용
+                            sat.style.transform = `translate3d(${sx + (ex - sx) * t}vw, ${sy + (ey - sy) * t}vh, 0)`;
+                            requestAnimationFrame(move);
+                        }
+                        else { sat.remove(); }
+                    };
+                    requestAnimationFrame(move);
+                }, delay);
+            }
+        }
+
+        setTimeout(() => {
+            const satLoop = () => { animateObject(false); setTimeout(satLoop, (Math.random() * 60000 + 40000) / ((autoCheckEl.checked) ? 1 : Math.abs(currentSpeed))); };
+            const starlinkLoop = () => { animateObject(true); setTimeout(starlinkLoop, (Math.random() * 120000 + 120000) / ((autoCheckEl.checked) ? 1 : Math.abs(currentSpeed))); };
+            satLoop(); starlinkLoop();
+        }, 5000);
+
+        /* 오디오 비주얼라이저 기능 (그대로 유지) */
+        let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let gainNode = audioCtx.createGain(); gainNode.connect(audioCtx.destination);
+        gainNode.gain.value = 0.2;
+        const links = ['./crickets.mp3', './creepy_tomb.mp3'];
+        let buffers = null;
+        (async () => {
+            let promises = [];
+            for (let e of links) {
+                promises.push((async (e) => {
+                    try { return audioCtx.decodeAudioData(await (await fetch(e)).arrayBuffer()); } catch (err) { return null; }
+                })(e));
+            }
+            buffers = await Promise.all(promises);
+        })();
+        let curAudio = -1;
+        let curSource = null;
+        async function setAudio(newAudio) {
+            if (curAudio === newAudio) return;
+            if (curAudio !== -1) {
+                try { curSource.stop(); curSource.disconnect(); } catch (e) { }
+            }
+            curAudio = newAudio;
+            if (newAudio === -1 || !buffers || !buffers[newAudio]) return;
+            try {
+                const source = new AudioBufferSourceNode(audioCtx, { buffer: buffers[newAudio], loop: true });
+                source.connect(gainNode); source.start();
+                curSource = source;
+            } catch (e) { }
+        }
+
+        const canvas = document.getElementById('vizCanvas'), ctx = canvas.getContext('2d');
+        let analyser, dataArray, isVizActive = false, sampleRate = 48000, smoothHeights = [];
+
+        function drawViz() {
+            if (!isVizActive) return; requestAnimationFrame(drawViz);
+            analyser.getByteFrequencyData(dataArray);
+            canvas.width = window.innerWidth; canvas.height = 200; ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const bw = canvas.width / 80;
+            const minFreq = 80, maxFreq = 14000, nyquist = sampleRate / 2;
+            const tColor = getComputedStyle(document.documentElement).getPropertyValue('--text-main').trim();
+
+            for (let i = 0; i < 80; i++) {
+                const freq = minFreq * Math.pow(maxFreq / minFreq, i / 79);
+                const dIdx = Math.floor((freq / nyquist) * dataArray.length);
+                let raw = dataArray[dIdx] || 0;
+                let target = (raw / 255) * canvas.height * (0.6 + (i / 80) * 0.5);
+                if (!smoothHeights[i]) smoothHeights[i] = 0;
+                if (target > smoothHeights[i]) smoothHeights[i] = target; else smoothHeights[i] *= 0.94;
+                const h = Math.min(smoothHeights[i], canvas.height * 0.8);
+                ctx.fillStyle = tColor.replace('rgb', 'rgba').replace(')', `, ${Math.max(0.08, raw / 255 * 0.4)})`);
+                ctx.fillRect(i * bw, canvas.height - h, bw - 1, h);
+            }
+        }
+    </script>
+</body>
+
+</html>
