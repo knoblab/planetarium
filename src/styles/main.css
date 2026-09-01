@@ -1,0 +1,522 @@
+:root {
+    --primary: #90caf9;
+    --on-primary-container: #003354;
+    --sun-x: 50vw;
+    --sun-y: 110vh;
+    --moon-x: 50vw;
+    --moon-y: 110vh;
+    --star-opacity: 0;
+    --star-rot: 0deg;
+    --star-mask-y: -50%;
+    --atm-opacity: 0;
+
+    /* 동적 글래스모피즘 변수 초기값 */
+    --glass-bg: rgba(20, 25, 35, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --text-main: rgba(255, 255, 255, 0.95);
+    --text-sub: rgba(255, 255, 255, 0.6);
+    --ui-color: rgba(255, 255, 255, 0.4);
+    --chip-bg: rgba(255, 255, 255, 0.1);
+}
+
+/* Chrome, Safari, Edge, Opera: number 스핀 버튼 제거 */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+/* Firefox: number 스핀 버튼 제거 */
+input[type=number] {
+    -moz-appearance: textfield;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000;
+    font-family: 'Roboto', sans-serif;
+    user-select: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    overscroll-behavior: none;
+}
+
+.layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+}
+
+.sky-base {
+    z-index: -2;
+    background: #050a19;
+}
+
+.sky-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    will-change: background;
+}
+
+.atmosphere {
+    z-index: 1;
+    /* 카메라 렌즈 및 대기 내부의 다중 미산란(Mie Scattering)을 시뮬레이션하는 정교한 광배 그라데이션 */
+    background: radial-gradient(circle at var(--sun-x) var(--sun-y), 
+                    rgba(255, 245, 220, 0.6) 0%, 
+                    rgba(255, 190, 110, 0.3) 8%, 
+                    rgba(255, 140, 60, 0.15) 22%, 
+                    transparent 75%);
+    mix-blend-mode: screen;
+    opacity: var(--atm-opacity);
+    will-change: opacity;
+    transform: translate3d(0, 0, 0);
+}
+
+/* 비회전형 스타 필터 마스크 레이어 (달의 위치에 구멍을 뚫어 밤하늘 은하수/별빛 완벽 차단) */
+.star-wrapper {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    /* 달 크기(32px)에 맞춘 16px 반경의 완벽한 투명 홀 마스킹! */
+    mask-image: radial-gradient(circle at var(--moon-x) var(--moon-y), transparent 15.5px, #fff 16px);
+    -webkit-mask-image: radial-gradient(circle at var(--moon-x) var(--moon-y), transparent 15.5px, #fff 16px);
+}
+
+/* ESO 360도 은하수 전천 파노라마 극좌표 투영(Polar Projection) 적용 */
+.star-container {
+    position: absolute;
+    top: calc(50% - 35.67vmax); /* 서울 기준 북극성 고도 반영 (50 - 45 * cos(37.5665)) */
+    left: 50%;
+    width: 245vmax;
+    height: 245vmax;
+    transform: translate(-50%, -50%) rotate(var(--star-rot)) translate3d(0, 0, 0);
+    opacity: var(--star-opacity);
+    background: url('/milky_way_all_sky.webp') no-repeat center center;
+    background-size: cover;
+    mix-blend-mode: screen;
+    mask-image: linear-gradient(to bottom, #fff calc(var(--star-mask-y) - 40%), transparent calc(var(--star-mask-y) + 40%));
+    -webkit-mask-image: linear-gradient(to bottom, #fff calc(var(--star-mask-y) - 40%), transparent calc(var(--star-mask-y) + 40%));
+    will-change: opacity, transform;
+}
+
+.satellite {
+    position: absolute;
+    width: 1.5px;
+    height: 1.5px;
+    z-index: 3;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 3px 1px rgba(255, 255, 255, 0.7);
+    will-change: transform;
+}
+
+/* GPU 가속 최적화를 위해 모든 위치 속성을 translate3d로 변경 */
+.celestial {
+    z-index: 4;
+    transform: translate3d(0, 0, 0);
+}
+
+/* 물리 기반 카메라 노출 및 아웃오브포커스 보케(Bokeh) 구현 */
+.sun-disk {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 60px;
+    height: 60px;
+    z-index: 100;
+    transform: translate3d(var(--sun-x), var(--sun-y), 0) translate(-50%, -50%);
+    border-radius: 50%;
+    background: #fff;
+    /* 극단적 밝기로 노출 오버된 태양 중심과 대기 산란(Bloom) 레이어 */
+    box-shadow: 0 0 60px 20px #fff, 
+                0 0 140px 50px rgba(255, 230, 150, 0.75), 
+                0 0 240px 90px rgba(255, 190, 90, 0.45);
+    will-change: transform;
+    opacity: var(--sun-opacity, 1);
+}
+
+/* 1. 달의 위치 세팅용 최외곽 컨테이너 */
+.moon-disk {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 32px;
+    height: 32px;
+    z-index: 101;
+    transform: translate3d(var(--moon-x), var(--moon-y), 0) translate(-50%, -50%);
+    will-change: transform;
+    opacity: var(--moon-opacity, 1);
+}
+
+/* 3. 어두운 면에 살짝 맺히는 지구 반사광 (지구조) */
+.moon-earthshine {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: inset 3px -1px 8px rgba(255, 255, 255, 0.12);
+    pointer-events: none;
+    opacity: var(--moon-earthshine-opacity, 1);
+}
+
+/* 4. 오직 위상에 따라 빛을 받는 영역만 드롭섀도우 코로나 투사! */
+.moon-crescent {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    filter: var(--moon-crescent-glow, drop-shadow(0 0 5px rgba(255, 245, 220, 0.85)) 
+            drop-shadow(0 0 15px rgba(200, 225, 255, 0.4)));
+    opacity: var(--moon-crescent-opacity, 1);
+}
+
+.moon-aura {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80vmax;
+    height: 80vmax;
+    z-index: 90;
+    transform: translate3d(var(--moon-x), var(--moon-y), 0) translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(160, 205, 255, 0.15) 0%, transparent 60%);
+    mix-blend-mode: screen;
+    will-change: transform;
+    opacity: calc(var(--moon-opacity, 1) * var(--moon-aura-opacity, 1));
+}
+
+.lens-flare-container,
+.moon-flare-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 150;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    will-change: opacity;
+}
+
+.flare-ghost {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate3d(50vw, 50vh, 0) translate(-50%, -50%);
+    border-radius: 50%;
+    will-change: transform;
+}
+
+/* 렌즈 특유 of 원형 회절 광륜 구현 */
+.flare-halo {
+    background: radial-gradient(circle, transparent 63%, rgba(255, 140, 80, 0.15) 66%, rgba(255, 210, 120, 0.1) 68%, rgba(100, 180, 255, 0.08) 71%, transparent 74%);
+    filter: blur(8px);
+}
+
+/* 프리미엄 반사 방지(AR) 코팅 렌즈에서 관찰되는 보케 엘리먼트 */
+.ghost-hex {
+    width: 80px;
+    height: 80px;
+    background: radial-gradient(circle, rgba(0, 180, 255, 0.03) 0%, rgba(255, 130, 70, 0.02) 65%, rgba(255, 255, 255, 0.14) 100%);
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+    filter: blur(2.5px);
+}
+
+/* 광학 굴절에 의한 미세한 무지갯빛 색수차 고리 */
+.ghost-rainbow {
+    background: radial-gradient(circle, transparent 38%, rgba(255, 90, 90, 0.07) 43%, rgba(255, 190, 70, 0.06) 48%, rgba(90, 255, 130, 0.05) 53%, rgba(90, 160, 255, 0.07) 58%, transparent 64%);
+    filter: blur(12px);
+}
+
+/* 아나모픽 시네마틱 렌즈 특유의 수평 청색 플레어 스트리크 */
+.sun-streak {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 200vw;
+    height: 4px;
+    transform: translate3d(var(--sun-x), var(--sun-y), 0) translate(-50%, -50%) rotate(-3deg);
+    background: linear-gradient(90deg, transparent, rgba(255, 230, 180, 0.45), rgba(255, 255, 255, 0.95), rgba(255, 230, 180, 0.45), transparent);
+    filter: blur(5px);
+    will-change: transform;
+}
+
+/* 실제 카메라 CCD 센서의 아날로그 입자감을 흉내 낸 무패턴 필름 그레인 오버레이 */
+.film-grain {
+    position: fixed;
+    inset: 0;
+    z-index: 140;
+    opacity: 0.045;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+.viz-canvas {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 200px;
+    z-index: 10;
+    pointer-events: none;
+    mask-image: linear-gradient(to top, black 30%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to top, black 30%, transparent 100%);
+}
+
+.glass-panel-base {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+    transition: background 0.5s, border 0.5s, color 0.5s;
+}
+
+/* ============================================================
+   저사양 모드 (Performance Mode) 전용 경량화 스타일
+   - 기본 모드(Off)의 그래픽은 100% 원본 유지
+   - 저사양 모드(On) 활성화 시 GPU 대역폭 및 배터리 소모 최적화
+============================================================ */
+body.perf-active .glass-panel-base {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+body.perf-active .film-grain {
+    display: none; /* SVG feTurbulence 프랙탈 노이즈 실시간 연산 비활성화 */
+}
+
+body.perf-active .sun-disk {
+    box-shadow: 0 0 30px 10px #fff, 0 0 70px 25px rgba(255, 230, 150, 0.6);
+}
+
+body.perf-active .ghost-rainbow {
+    display: none; /* 500px 대형 블러 렌즈플레어 비활성화 */
+}
+
+body.perf-active .flare-halo {
+    filter: blur(3px);
+}
+
+body.perf-active .sun-streak {
+    filter: blur(2px);
+}
+
+.bottom-clock {
+    position: fixed;
+    bottom: 35px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--text-main);
+    font-weight: 300;
+    font-size: 16px;
+    letter-spacing: 4px;
+    z-index: 500;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: color 0.5s;
+}
+
+.info-panel {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    width: 320px;
+    padding: 24px;
+    border-radius: 32px;
+    z-index: 510;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.5s, color 0.5s;
+}
+
+.info-panel.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+
+.info-panel b {
+    background: var(--primary);
+    border-radius: 8px;
+    padding-left: 0.4em;
+    padding-right: 0.4em;
+    color: var(--on-primary-container);
+    font-weight: 500;
+    transition: background 0.5s, color 0.5s;
+}
+
+.popup {
+    position: fixed;
+    bottom: 100px;
+    right: 30px;
+    width: 280px;
+    padding: 28px;
+    border-radius: 32px;
+    z-index: 520;
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.9) translateY(20px);
+    transform-origin: bottom right;
+    transition: opacity 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.5s, color 0.5s;
+}
+
+.popup.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: scale(1) translateY(0);
+}
+
+.row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 22px;
+}
+
+.label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-sub);
+    text-transform: uppercase;
+    transition: color 0.5s;
+}
+
+.manual-ui.disabled {
+    opacity: 0.2;
+    pointer-events: none;
+    filter: grayscale(1);
+}
+
+.speed-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.chip {
+    background: var(--chip-bg);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: background 0.5s, color 0.5s;
+}
+
+.btn-action {
+    width: 100%;
+    padding: 14px;
+    background: var(--primary);
+    color: var(--on-primary-container);
+    border: none;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background 0.5s, 0.2s;
+}
+
+input[type=range] {
+    width: 100%;
+    appearance: none;
+    background: var(--chip-bg);
+    height: 6px;
+    border-radius: 3px;
+    outline: none;
+    margin: 10px 0;
+    pointer-events: auto;
+}
+
+input[type=range]::-webkit-slider-thumb {
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    transition: background 0.5s;
+}
+
+input[type=range]::-moz-range-thumb {
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    transition: background 0.5s;
+}
+
+.switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    display: inline-block;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider-sw {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(100, 100, 100, 0.5);
+    border-radius: 24px;
+    transition: 0.3s;
+    cursor: pointer;
+}
+
+.slider-sw:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: 0.3s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+input[type=checkbox]+.slider-sw {
+    transition: background 0.5s, border 0.5s, color 0.5s;
+}
+
+input:checked+.slider-sw {
+    background: var(--primary);
+}
+
+input:checked+.slider-sw:before {
+    transform: translateX(20px);
+    background: var(--on-primary-container);
+}
